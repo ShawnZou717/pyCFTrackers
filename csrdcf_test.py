@@ -1,8 +1,7 @@
 import cv2
 import sys
-# from cftracker.csrdcf import CSRDCF
-# from cftracker.MRScale_estimator import MREstimator as CSRDCF
-from cftracker.csrdcf_mr import CSRDCF_MR as CSRDCF
+from cftracker.csrdcf import CSRDCF
+from cftracker.csrdcf_mr import CSRDCF_MR
 from cftracker.config import csrdcf_config
 
 
@@ -15,6 +14,7 @@ start_index = 29
 def main():
     # tracker = CSRDCF()
     tracker = create_tracker()
+    tracker01 = CSRDCF_MR(csrdcf_config.CSRDCFConfig())
     video = cv2.VideoCapture('/home/shawn/scripts_output_tmp/WorldChampionJet06.avi')
     if not video.isOpened():
         print("Could not open video")
@@ -43,24 +43,31 @@ def main():
             box = (278, 166, 697, 284)  # 29 frame
             # box = (379, 168, 474, 285)  # 150 frame
             tracker.init(frame, box)
+            tracker01.init(frame, box)
         bbox = tracker.update(frame)
+        bbox01 = tracker01.update(frame)
 
         if True:
             p1 = (int(bbox[0]), int(bbox[1]))
             p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
             cv2.rectangle(frame, p1, p2, (0, 0, 255), 2, 1)
-            cv2.putText(frame, "Tracked", p1, cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
+            cv2.putText(frame, "CSRT Tracked", p1, cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
+
+            p1 = (int(bbox01[0]), int(bbox01[1]))
+            p2 = (int(bbox01[0] + bbox01[2]), int(bbox01[1] + bbox01[3]))
+            cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)
+            cv2.putText(frame, "MR Tracked", p1, cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), 2)
         else:
             cv2.putText(frame, "Tracking failure detected", (100, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
 
         comp = 8-len(str(i))
         strl = "0"*comp+str(i)
         print("This is frame "+strl)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/huiguiren_MR_square/frame_%s.jpg"%strl, frame)
+        cv2.imwrite("/home/shawn/scripts_output_tmp/CSRT_MR_Estimator/frame_%s.jpg"%strl, frame)
         #
-        cv2.imshow("", frame)
-        key = cv2.waitKey(1) & 0xFF
-        pass
+        # cv2.imshow("", frame)
+        # key = cv2.waitKey(1) & 0xFF
+        # pass
 
     video.release()
     cv2.destroyAllWindows()
