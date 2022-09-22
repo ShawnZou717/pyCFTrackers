@@ -2,8 +2,14 @@ import numpy as np
 def fft2(x):
     return np.fft.fft(np.fft.fft(x, axis=1), axis=0).astype(np.complex64)
 
+def fft(x, axis = 1):
+    return np.fft.fft(x, axis = axis).astype(np.complex64)
+
 def ifft2(x):
     return np.fft.ifft(np.fft.ifft(x, axis=1), axis=0).astype(np.complex64)
+
+def ifft(x, axis = 1):
+    return np.fft.ifft(x, axis = axis).astype(np.complex64)
 
 def cifft2(xf):
     x = np.real(ifft2(np.fft.ifftshift(np.fft.ifftshift(xf, 0),1))).astype(np.float32)

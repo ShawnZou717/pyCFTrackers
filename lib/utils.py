@@ -112,6 +112,14 @@ def gaussian2d_rolled_labels(sz,sigma):
     return labels
 
 
+def gaussian1d_rolled_labels(w,sigma):
+    xs = np.arange(w)-w//2
+    dist = (xs**2) / (sigma**2)
+    labels = np.exp(-0.5*dist)
+    labels = np.roll(labels, -int(np.floor(w / 2)))
+    return labels
+
+
 def plot_precision(gts,preds,save_path):
     # x,y,w,h
     threshes,precisions=get_thresh_precision_pair(gts,preds)

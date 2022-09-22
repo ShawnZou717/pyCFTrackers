@@ -16,6 +16,7 @@ from lib.utils import gaussian2d_rolled_labels
 from .feature import extract_hog_feature,extract_cn_feature
 from .config import csrdcf_config
 from cftracker.scale_estimator import LPScaleEstimator,DSSTScaleEstimator
+# import MRScale_estimator as MRSer
 
 
 def kernel_profile_epanechnikov(x):
@@ -26,6 +27,7 @@ def kernel_profile_epanechnikov(x):
 class CSRDCF(BaseCF):
     def __init__(self,config):
         super(CSRDCF).__init__()
+        self.init_flag = False
 
         self.padding=config.padding
         self.interp_factor = config.interp_factor
@@ -145,9 +147,14 @@ class CSRDCF(BaseCF):
         f=f*self._window[:,:,None]
         # create filters using segmentation mask
         self.H=self.create_csr_filter(f,self.yf,mask)
+
         response=np.real(ifft2(fft2(f)*np.conj(self.H)))
         chann_w=np.max(response.reshape(response.shape[0]*response.shape[1],-1),axis=0)
         self.chann_w=chann_w/np.sum(chann_w)
+        self.init_flag = True
+
+    def is_init(self):
+        return self.init_flag
 
 
     def update(self,current_frame,vis=False):
@@ -265,6 +272,120 @@ class CSRDCF(BaseCF):
 
         return region
 
+    def update_MR(self,current_frame,vis=False):
+        f=self.get_csr_features(current_frame,self._center,self.current_scale_factor,
+                                self.template_size,self.rescale_template_size,self.cell_size)
+        f=f*self._window[:,:,None]
+        if self.use_channel_weights is True:
+            response_chann=np.real(ifft2(fft2(f)*np.conj(self.H)))
+            response=np.sum(response_chann*self.chann_w[None,None,:],axis=2)
+        else:
+            response=np.real(ifft2(np.sum(fft2(f)*np.conj(self.H),axis=2)))
+        if vis is True:
+            self.score=response
+            self.score = np.roll(self.score, int(np.floor(self.score.shape[0] / 2)), axis=0)
+            self.score = np.roll(self.score, int(np.floor(self.score.shape[1] / 2)), axis=1)
+
+        curr=np.unravel_index(np.argmax(response,axis=None),response.shape)
+        if self.use_channel_weights is True:
+            channel_discr=np.ones((response_chann.shape[2]))
+            for i in range(response_chann.shape[2]):
+                norm_response=self.normalize_img(response_chann[:,:,i])
+
+                from skimage.feature.peak import peak_local_max
+                peak_locs=peak_local_max(norm_response,min_distance=5)
+                if len(peak_locs)<2:
+                    continue
+                vals=reversed(sorted(norm_response[peak_locs[:,0],peak_locs[:,1]]))
+                second_max_val=None
+                max_val=None
+                for index,val in enumerate(vals):
+                    if index==0:
+                        max_val=val
+                    elif index==1:
+                        second_max_val=val
+                    else:
+                        break
+                channel_discr[i]=max(0.5,1-(second_max_val/(max_val+1e-10)))
+
+        v_neighbors=response[[(curr[0]-1)%response.shape[0],(curr[0])%response.shape[0],
+                              (curr[0]+1)%response.shape[0]],curr[1]]
+        h_neighbors=response[curr[0],
+                             [(curr[1]-1) % response.shape[1], (curr[1]) % response.shape[1],
+                             (curr[1]+1) % response.shape[1]]
+                            ]
+        row=curr[0]+self.subpixel_peak(v_neighbors)
+        col=curr[1]+self.subpixel_peak(h_neighbors)
+        if row+1>response.shape[0]/2:
+            row=row-response.shape[0]
+        if col+1>response.shape[1]/2:
+            col=col-response.shape[1]
+        # displacement
+        dx=self.current_scale_factor*self.cell_size*(1/self.rescale_ratio)*col
+        dy=self.current_scale_factor*self.cell_size*(1/self.rescale_ratio)*row
+        self._center=(self._center[0]+dx,self._center[1]+dy)
+
+        self.current_scale_factor = self.scale_estimator.update(current_frame, self._center, self.base_target_sz,
+                                                                self.current_scale_factor)
+        if self.scale_type == 'normal':
+            self.current_scale_factor = np.clip(self.current_scale_factor, a_min=self._min_scale_factor,
+                                                a_max=self._max_scale_factor)
+
+        self.target_sz = (self.current_scale_factor * self.base_target_sz[0],
+                          self.current_scale_factor * self.base_target_sz[1])
+        region=[np.round(self._center[0] - self.target_sz[0] / 2),np.round( self._center[1] - self.target_sz[1] / 2),
+                        self.target_sz[0], self.target_sz[1]]
+        if self.use_segmentation:
+            if self.segcolor_space=='bgr':
+                seg_img=current_frame
+            elif self.segcolor_space=='hsv':
+                seg_img=cv2.cvtColor(current_frame,cv2.COLOR_BGR2HSV)
+                seg_img[:, :, 0] = (seg_img[:, :, 0].astype(np.float32)/180*255)
+                seg_img = seg_img.astype(np.uint8)
+            else:
+                raise ValueError
+
+            hist_fg=Histogram(3,self.nbins)
+            hist_bg=Histogram(3,self.nbins)
+            self.extract_histograms(seg_img,region,hist_fg,hist_bg)
+            self.hist_fg_p_bins=(1-self.hist_lr)*self.hist_fg_p_bins+self.hist_lr*hist_fg.p_bins
+            self.hist_bg_p_bins=(1-self.hist_lr)*self.hist_bg_p_bins+self.hist_lr*hist_bg.p_bins
+
+            hist_fg.p_bins=self.hist_fg_p_bins
+            hist_bg.p_bins=self.hist_bg_p_bins
+            mask=self.segment_region(seg_img,self._center,self.template_size,self.base_target_sz,self.current_scale_factor,
+                                     hist_fg,hist_bg)
+            init_mask_padded=np.zeros_like(mask)
+            pm_x0=int(np.floor(mask.shape[1]/2-region[2]/2))
+            pm_y0=int(np.floor(mask.shape[0]/2-region[3]/2))
+            init_mask_padded[pm_y0:pm_y0+int(np.round(region[3])),pm_x0:pm_x0+int(np.round(region[2]))]=1
+            mask=mask*init_mask_padded
+            mask=cv2.resize(mask,(self.yf.shape[1],self.yf.shape[0]))
+            if self.mask_normal(mask,self.target_dummy_area) is True:
+                kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3),anchor=(1,1))
+                mask=cv2.dilate(mask,kernel)
+            else:
+                mask=self.target_dummy_mask
+            pass
+        else:
+            mask=self.target_dummy_mask
+
+        #cv2.imshow('Mask', (mask * 255).astype(np.uint8))
+        #cv2.waitKey(1)
+
+        f = self.get_csr_features(current_frame, self._center, self.current_scale_factor,
+                                  self.template_size, self.rescale_template_size, self.cell_size)
+        f = f * self._window[:, :, None]
+        H_new=self.create_csr_filter(f,self.yf,mask)
+        if self.use_channel_weights:
+            response=np.real(ifft2(fft2(f)*np.conj(H_new)))
+            chann_w = np.max(response.reshape(response.shape[0] * response.shape[1], -1), axis=0)*channel_discr
+            chann_w=chann_w/np.sum(chann_w)
+            self.chann_w=(1-self.channels_weight_lr)*self.chann_w+self.channels_weight_lr*chann_w
+            self.chann_w=self.chann_w/np.sum(self.chann_w)
+        self.H=(1-self.interp_factor)*self.H+self.interp_factor*H_new
+
+        return region
 
     def get_csr_features(self,img,center,scale,template_sz,resize_sz,cell_size):
         center=(int(center[0]),int(center[1]))
@@ -580,6 +701,24 @@ class Segment:
         max_iter=50
         Qsum_o=None
         Qsum_b=None
+
+        # import seaborn as sns
+        # import matplotlib.pyplot as plt
+        # fig = plt.figure(figsize=(40,20))
+        # fig.add_subplot(2,1,1)
+        # sns.heatmap(prob_b, linewidth=0.3)
+        # fig.add_subplot(2, 1, 2)
+        # sns.heatmap(prob_o, linewidth=0.3)
+        #
+        # fig = plt.figure(figsize=(40, 20))
+        # fig.add_subplot(2, 1, 1)
+        # sns.heatmap(prior_b, linewidth=0.3)
+        # fig.add_subplot(2, 1, 2)
+        # sns.heatmap(prior_o, linewidth=0.3)
+        #
+        # plt.show()
+        # plt.close()
+
         for i in range(max_iter):
             P_Io=prior_o*prob_o+1.192*1e-7
             P_Ib=prior_b*prob_b+1.192*1e-7
@@ -604,11 +743,13 @@ class Segment:
             Qsum_o=cv2.filter2D(Qi_o,-1,lambda_2,anchor=(-1,-1),delta=0,borderType=cv2.BORDER_REFLECT)
             Qsum_b=cv2.filter2D(Qi_b,-1,lambda_2,anchor=(-1,-1),delta=0,borderType=cv2.BORDER_REFLECT)
 
+
             prior_o=(Qsum_o+Ssum_o)*0.25
             prior_b=(Qsum_b+Ssum_b)*0.25
             normPI=1/(prior_b+prior_o)
             prior_o=prior_o*normPI
             prior_b=prior_b*normPI
+
 
             logQo=cv2.log(Qsum_o)
             logQb=cv2.log(Qsum_b)

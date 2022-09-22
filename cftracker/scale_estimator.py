@@ -230,3 +230,217 @@ class LPScaleEstimator:
         scale = np.exp(ptx/mag)
         return scale,rotate,mscore
 
+class MRScaleEstimator:
+    def __init__(self, radius, phi_num):
+        if not isinstance(radius, list):
+            raise Exception("must be one dimensional list item, such as [1,2,3,4,5]")
+        self.phi_num = phi_num
+        self.phi_bin = 360/self.phi_num
+        self.scale_num = len(radius)
+        self.scale_factor = [1 for _ in range(self.scale_num)]
+        self.expand_factor = 2
+        self.oriented_angle = 0 # du, not rad
+        self.radius = radius
+        self.img_polar = None
+        self.img_center = None
+
+    def estimate_scale(self, img, obj_center, oriented_angle, last_obj_img):
+        # get cutted image according to expand factor
+        # last_obj_img = last_img[int(last_obj_center[1]-last_rec_size[1]/2):int(last_obj_center[1]+last_rec_size[1]/2),
+        #                int(last_obj_center[0]-last_rec_size[0]/2):int(last_obj_center[0]+last_rec_size[0]/2),:]
+
+        h_o, w_o, _ = last_obj_img.shape
+        h, w, _ = img.shape
+        h_expanded, w_expanded = 2*h_o, 2*w_o
+        x_center, y_center = obj_center
+        xmin, ymin, xmax, ymax = int(x_center-w_expanded/2), int(y_center-h_expanded/2), int(x_center+w_expanded/2), int(y_center+h_expanded/2)
+        xmin, ymin, xmax, ymax = max(0, xmin), max(0, ymin), min(xmax, w-1), min(ymax, h-1)
+        img_cut = img[ymin:ymax, xmin:xmax, :]
+        h_cut, w_cut, _ =  img_cut.shape
+        if h_cut < h_expanded or w_cut < w_expanded:
+            w_boarder_left = int((w_expanded-w_cut)/2)
+            w_boarder_right = w_expanded - w_boarder_left - w_cut
+            h_boarder_top = int((h_expanded-h_cut)/2)
+            h_boarder_bottom = h_expanded - h_boarder_top - h_cut
+            img_cut = cv2.copyMakeBorder(img_cut, h_boarder_top, h_boarder_bottom, w_boarder_left, w_boarder_right, cv2.BORDER_CONSTANT,(0,0,0))
+
+        if img_cut.shape[0] != h_expanded or img_cut.shape[1] != w_expanded:
+            raise Exception("Wrong dimension of img_cut.")
+
+        # convert img from xy to \tho\phi
+        import math
+        x_center_new, y_center_new = x_center-xmin+w_boarder_left, y_center-ymin+h_boarder_top
+        r1 = math.hypot(x_center_new, y_center_new)
+        r2 = math.hypot(w_expanded-x_center_new-1, y_center_new)
+        r3 = math.hypot(x_center_new, h_expanded-y_center_new-1)
+        r4 = math.hypot(w_expanded-x_center_new-1, h_expanded-y_center_new-1)
+        maxRadius = max(r1, r2, r3, r4)
+        m = max(h_expanded, w_expanded)/math.log(maxRadius)
+        img_cut_polar = cv2.logPolar(img_cut, (x_center_new, y_center_new), m, cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
+        self.img_center = (x_center_new, y_center_new)
+        self.img_polar = img_cut_polar
+
+        # polar axis value
+        phi_num, tho_num, _ = img_cut_polar.shape
+        phi_bin = 360/phi_num
+        phi = [i * phi_bin for i in range(phi_num)]
+        tho = list(range(tho_num))
+
+        # the same size last_obj_image
+        w_boarder_left_last = int((w_expanded - w_o) / 2)
+        w_boarder_right_last = w_expanded - w_boarder_left_last - w_o
+        h_boarder_top_last = int((h_expanded - h_o) / 2)
+        h_boarder_bottom_last = h_expanded - h_boarder_top_last - h_o
+        last_obj_img = cv2.copyMakeBorder(last_obj_img, h_boarder_top_last, h_boarder_bottom_last, w_boarder_left_last, w_boarder_right_last,
+                                     cv2.BORDER_CONSTANT, (0, 0, 0))
+
+        if last_obj_img.shape[0] != h_expanded or last_obj_img.shape[1] != w_expanded:
+            raise Exception("Wrong dimension of img_cut.")
+
+        # convert last obj image into semi-polar coordinates
+        x_center_last, y_center_last = int(w_o/2+w_boarder_left_last), int(h_o/2+h_boarder_top_last)
+        r1 = math.hypot(x_center_last, y_center_last)
+        r2 = math.hypot(w_expanded - x_center_last - 1, y_center_last)
+        r3 = math.hypot(x_center_last, h_expanded - y_center_last - 1)
+        r4 = math.hypot(w_expanded - x_center_new - 1, h_expanded - y_center_last - 1)
+        maxRadius_last = max(r1, r2, r3, r4)
+        m_last = max(h_expanded, w_expanded) / math.log(maxRadius_last)
+        last_obj_img_polar = cv2.logPolar(last_obj_img, (x_center_new, y_center_new), m,
+                                     cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+
+        # rotate img in semi-polar coordinates
+        _ = input("Pay attention to the oriented_angle!!!!!!!!!!!!\n\
+                  was delta_angle in (f with respect to h) or backwards\n\
+                  here in code it is h+delta_angle = f")
+        bin_delta = 0
+        if abs(self.oriented_angle + oriented_angle) > self.phi_bin:
+            signs = abs(self.oriented_angle + oriented_angle)/(self.oriented_angle + oriented_angle)
+            bin_delta = int(abs(self.oriented_angle + oriented_angle)/phi_bin)*signs
+            last_obj_img_polar = np.roll(last_obj_img_polar, bin_delta, axis=0)
+        self.oriented_angle = (abs(self.oriented_angle + oriented_angle) % self.phi_bin)*signs
+
+        # rotate radius since it comes from the last frame
+        radius = []
+        resize_factor = (self.scale_num-1)/(h_expanded-1)
+        for idx in range(h_expanded):
+            idx_scale = idx*resize_factor
+            former_index = max(np.floor(idx_scale), 0)
+            later_index = min(np.ceil(idx_scale), self.scale_num-1)
+            if former_index == later_index:
+                radius.append(self.radius[int(later_index)])
+            else:
+                p = [radius[int(former_index)], radius[int(later_index)]]
+                value = (p[1]-p[0])*(idx_scale-former_index)+p[0]
+                radius.append(value)
+        if bin_delta != 0:
+            radius = np.roll(np.array(radius), bin_delta)
+
+        for idx in range(h_expanded):
+            idx_scale = idx * resize_factor
+            if int(idx_scale) - idx_scale == 0:
+                self.radius[int(idx_scale)] = radius[idx]
+
+        # resize
+        img_cut_polar = cv2.resize(img_cut_polar, (w_expanded, self.phi_num))
+        last_obj_img_polar = cv2.resize(last_obj_img_polar, (w_expanded, self.phi_num))
+
+        # calculate radius each direction
+        for idx in range(self.phi_num):
+            f = img_cut_polar[idx, :]
+            h = last_obj_img_polar[idx, :]
+            fft=np.fft.fft
+            ifft=np.fft.ifft
+            H = fft(h*np.hanning(len(h)))
+            # since we don't care about amplitude or energy, there is no need to use restitution coefficient
+            response = np.real(ifft(fft(f*np.hanning(len(f)))*np.conj(H)))
+            s_index = np.argmax(response)
+
+            p = response[s_index-1:s_index+2]
+            delta_s = 0.5 * (p[2] - p[0]) / (2 * p[1] - p[2] - p[0])
+            if not np.isfinite(delta_s):
+                delta_s = 0
+            s = s_index + delta_s
+
+            if s + 1 > len(response) / 2:
+                s = s - response.shape[0]
+
+            self.scale_factor[idx] = s
+            self.radius[idx] = s*self.radius[idx]
+
+    def estimate_obj(self, img):
+        phi = [i*360/self.scale_num for i in range(self.scale_num)]
+        x = [self.img_center[0]+int(self.radius[i]*np.cos(phi[i]/180*np.pi)) for i in range(self.scale_num)]
+        xmin = min(x)
+        xmax = max(x)
+        y = [self.img_center[1]+int(self.radius[i]*np.sin(phi[i]/180*np.pi)) for i in range(self.scale_num)]
+        ymin = min(y)
+        ymax = max(y)
+        x,y,w,h=xmin, ymin, xmax-xmin, ymax-ymin
+        points = [[x,y] for i in range(self.scale_num)] # anticlockwise points
+
+        flag = np.zeros_like(img)
+
+        for idx in range(self.scale_num):
+            cur_point = points[idx]
+            next_point = points[(idx+1)%self.scale_num]
+            cv2.line(flag, cur_point, next_point, (255,255,255),1)
+
+        flag = np.uint8(flag[:,:,0])
+        num, labels = cv2.connectedComponents(flag, 8)
+        item_label = labels[self.img_center[1], self.img_center[0]]
+        flag[flag == item_label] = 1
+        flag[flag != item_label] = 0
+
+        obj_sub_img = img[ymin:ymax, xmin:xmax, :]
+        flag_cut = flag[ymin:ymax, xmin:xmax]
+        obj = obj_sub_img.copy()
+        for i in range(obj.shape[2]):
+            obj[:,:,i] = obj[:,:,i]*flag_cut
+
+        return (x,y,w,h), obj
+
+
+def test_MRScaleEstimator():
+    import math
+    w = 10**2
+    h = 10**2
+    frame = np.zeros((h, w, 3))
+    # draw circle
+    a0 = 50
+    b0 = 30
+    center1 = (w//2, h//2)
+    for i in range(h):
+        for j in range(w):
+            if (i-center1[1])**2/a0**2+(j-center1[0])**2/b0**2 <= 1:
+                frame[i, j, :] = (255, 255, 255)
+    cv2.imwrite("/home/shawn/scripts_output_tmp/zzz.jpg", frame)
+
+    later_frame = np.zeros((h, w, 3))
+    # draw eclipse
+    a = 30
+    b = 10
+    center2 = (w // 2 - 15, h // 2 + 25)
+    alpha = math.pi/6
+    for i in range(h):
+        for j in range(w):
+            term1 = ((i - center2[1]) * math.cos(alpha) + (j-center2[0]) * math.sin(alpha)) ** 2 / a ** 2
+            term2 = ((center2[1] - 1) * math.sin(alpha) + (j - center2[0]) * math.cos(alpha)) ** 2 / b ** 2
+            if term1 + term2 <= 1:
+                later_frame[i, j, :] = (255, 255, 255)
+    cv2.imwrite("/home/shawn/scripts_output_tmp/zzz1.jpg", frame)
+
+
+if __name__ == "__main__":
+    test_MRScaleEstimator()
+
+
+
+
+
+
+
+
+
+
+
+
