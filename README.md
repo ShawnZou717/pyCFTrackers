@@ -11,3 +11,4 @@ You can find the working mechanism of this OSE in the technique report in [Googl
 The Omnidirectional Scale Estimator source codes locate at [MRScale_estimator.py](https://github.com/ShawnZou717/pyCFTrackers/blob/master/cftracker/MRScale_estimator.py). Details are explained below.
 
 ## Omnidirectional Scale Estimator
+The geomatric optics theory has shown that radious along different directions varies at different rate in the imaging plane if the object is moving (See technique report in [GoogleDrive](https://github.com/ShawnZou717/pyCFTrackers/blob/master/cftracker/MRScale_estimator.py)). 
