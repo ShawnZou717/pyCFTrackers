@@ -1,13 +1,12 @@
 # pyCFTrackers with an Onmidirectional Scale Estimator
-Python re-implementation of some correlation filter based tracker
 
 This project is adapted from the [pyTracker project released by fengyang95](https://github.com/fengyang95/pyCFTrackers).
 
-The improvement of pyTracker is as follows:
+The improvement of pyCFTracker is as follows:
 1. An (OSE) Omnidirectional Scale Estimator is added to replace the original scale estimator in DCF-CSR tracker;
 2. Iterative estimation of translation, rotation and a scaling correction method are applied in the estimation process.
 
-The new algorithm is called **GOITLM** (Geometric Optics based Iterative Target Location Method in Object Tracking)
+The new algorithm is called **GOITLM** (Geometric Optics based Iterative Target Location Method in Object Tracking) and is right now under patent review.
 
 You can find the working mechanism of GOITLM in the technique report in [GoogleDrive](https://drive.google.com/drive/folders/1i-294Y137ySk-4afjPpypxodpGenpJPZ?usp=share_link)
 
