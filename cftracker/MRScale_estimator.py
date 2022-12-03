@@ -29,10 +29,12 @@ def cos_window(sz):
 
 
 def generate_image():
+    '''
+    This function can generate 2 image of 2 eclipse with descending pixel value, different size and shifted center.
+    '''
     w = 10**2
     h = 10**2
-    # w = 2 * 75
-    # h = 2 * 30
+
     frame = np.zeros((h, w, 3))
     # draw circle
     a0 = 25
@@ -43,11 +45,9 @@ def generate_image():
             if (i-center1[1])**2/b0**2+(j-center1[0])**2/a0**2 <= 1:
                 value = (i - center1[1]) ** 2 / b0 ** 2 + (j - center1[0]) ** 2 / a0 ** 2
                 frame[i, j, :] = np.floor(255-np.array([255, 255, 255])*value/2)
-                # frame[i, j, :] = np.floor(np.random.randn(3) * 122 + 123)
             else:
-                # frame[i, j, :] = np.floor(np.random.rand(3)*256)
                 frame[i, j, :] = (0, 0, 0)
-    cv2.imwrite("/home/shawn/scripts_output_tmp/zzz.jpg", frame)
+    cv2.imwrite(".zzz.jpg", frame)
 
     later_frame = np.zeros((h, w, 3))
     # draw eclipse
@@ -62,11 +62,9 @@ def generate_image():
             if term1 + term2 <= 1:
                 value = term1 + term2
                 later_frame[i, j, :] = np.floor(255-np.array([255, 255, 255])*value/2)
-                # later_frame[i, j, :] = np.floor(np.random.randn(3) * 122 + 123)
             else:
-                # later_frame[i, j, :] = np.floor(np.random.rand(3)*256)
                 later_frame[i, j, :] = (0, 0, 0)
-    cv2.imwrite("/home/shawn/scripts_output_tmp/zzz1.jpg", later_frame)
+    cv2.imwrite("zzz1.jpg", later_frame)
     return frame, later_frame
 
 
@@ -123,53 +121,6 @@ def scale_array(x, sf, FILL_VALUE = None, INTERP = "NEAREST", extend_flag = Fals
     return np.array(res)
 
 
-class MREstimator:
-    def __init__(self, padding = 2):
-        self.padding = padding
-
-    def init(self, first_frame, bbox):
-        xywh = bbox
-        xmin, ymin, w, h = xywh[0:4]
-        xmax, ymax = xmin+w, ymin+h
-        self.last_frame = np.zeros((self.padding*h, self.padding*w, 3))
-        self.last_frame[0:h, 0:w, :] = first_frame[ymin:ymax, xmin:xmax, :]
-        self.last_frame = np.roll(self.last_frame, int(h/2), axis=0)
-        self.last_frame = np.roll(self.last_frame, int(w / 2), axis=1)
-        self.w = w
-        self.h = h
-        self.x = xmin
-        self.y = ymin
-
-    def update(self, cur_frame):
-        print("First")
-        print(cur_frame.shape)
-        print((self.x+self.w//2, self.y+self.h//2))
-        sub_img = cv2.getRectSubPix(cur_frame, patchSize=(int(self.padding * self.w),
-                                                        int(self.padding * self.h)),
-                                        center=(int(self.x+self.w//2), int(self.y+self.h//2)))
-        cv2.imwrite("/home/shawn/scripts_output_tmp/zzz1.jpg", self.last_frame)
-        cv2.imwrite("/home/shawn/scripts_output_tmp/zzz2.jpg", sub_img)
-        dx, dy, w, h = MR_estimate(self.last_frame, sub_img, log_flag=True)
-        w, h = int(w/self.padding), int(h/self.padding)
-        self.x = int(self.x+dx)
-        self.y = int(self.y+dy)
-        self.w = int(w)
-        self.h = int(h)
-        xmin, ymin = self.x, self.y
-        xmax, ymax = xmin + w, ymin + h
-        print("Second")
-        print((h, w))
-        print((xmin, ymin, xmax, ymax))
-        self.last_frame = np.zeros((self.padding * h, self.padding * w, 3))
-        self.last_frame[0:h, 0:w, :] = cv2.getRectSubPix(cur_frame, patchSize=(int(self.w),
-                                                        int(self.h)),
-                                        center=(int(self.x+self.w//2), int(self.y+self.h//2)))
-        self.last_frame = np.roll(self.last_frame, int(h / 2), axis=0)
-        self.last_frame = np.roll(self.last_frame, int(w / 2), axis=1)
-        return self.x, self.y, self.w, self.h
-
-
-
 def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weight = None,
                 channel_weight_linearPolar = None, channel_weight_logPolar = None,log_flag = False, img_flag = False,
                 erode_times=1):
@@ -192,15 +143,11 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
 
     last_frame_gray = np.sum(last_frame, axis=2)/last_frame.shape[2]
     cur_frame_gray = np.sum(cur_frame, axis=2)/cur_frame.shape[2]
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/last_frame_gray.jpg", last_frame_gray)
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/cur_frame_gray.jpg", cur_frame_gray)
 
     h, w, _ = last_frame.shape
     center1 = (w/2, h/2)
 
     sf_following = 1
-    # following_matrix = generate_following_matrix((sf_following*h, sf_following*w))
-    # following_matrix = np.zeros(h) + h/2
 
     following_matrix = []
     _phi = [i*(360/h) for i in range(h)]
@@ -213,6 +160,7 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
     phi_v3 = math.atan(h / w) * 180 / math.pi + 180
     phi_v4 = math.atan(-h / w) * 180 / math.pi + 360
     phi_v5 = phi_v4 + 90
+
     for phi_val in _phi:
         if (phi_val > phi_v1 and phi_val <= phi_v2) or (phi_val > phi_v3 and phi_val <= phi_v4):
             if phi_val == 90 or phi_val == 270:
@@ -227,14 +175,10 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
                 cos_phi = math.cos(phi_val*math.pi/180)
             radius = abs((w/2)/cos_phi)
         following_matrix.append(radius)
+        
     following_matrix = np.array(following_matrix)
     sf_following = 1.
     following_matrix = following_matrix*sf_following + h/2*(1. - sf_following)
-    # following_matrix = following_matrix * 0.9 + h / 2 * 0.1
-
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/following_matrix.jpg", following_matrix)
-    # center_following = (following_matrix.shape[1]//2, following_matrix.shape[0]//2)
-    # center_following_const = (following_matrix.shape[1]//2, following_matrix.shape[0]//2)
 
     window = cos_window((last_frame.shape[1], last_frame.shape[0]))
 
@@ -298,18 +242,6 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
 
         last_frame_polar = cv2.linearPolar(last_frame, center1, maxR1, cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
 
-        # xc, yc = center_following[:2]
-        # h_follow, w_follow, _ = following_matrix.shape
-        # r1 = math.hypot(xc, yc)
-        # r2 = math.hypot(w_follow - xc - 1, yc)
-        # r3 = math.hypot(xc, h_follow - yc - 1)
-        # r4 = math.hypot(w_follow - xc - 1, h_follow - yc - 1)
-        # maxR1_follow = max(r1, r2, r3, r4)
-        # following_matrix_linearPolar = cv2.linearPolar(following_matrix, center_following, maxR1_follow,
-        #                                                cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
-        # following_matrix_linearPolar = following_matrix_linearPolar[:,:,None]
-        # center_following = (center_following[0] + int(sf_following*dx), center_following[1] + int(sf_following*dy))
-
         center2 = (center1[0] + int(dx), center1[1] + int(dy))
         xc, yc = center2[:2]
         r1 = math.hypot(xc, yc)
@@ -344,10 +276,6 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
         if y_idx + 1 > response.shape[0] / 2:
             y_idx = y_idx - response.shape[0]
 
-        # if dphi > dphi_min:
-        #     dphi = y_idx*(360/response.shape[0])
-        # else:
-        #     y_idx = 0
         dphi = y_idx * (360 / response.shape[0])
 
         ######  scale estimator
@@ -364,8 +292,6 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
 
         cur_frame_logpolar = cv2.logPolar(cur_frame, center2, m, cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
 
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/last_frame_logpolar_%d.jpg" % exp_round, last_frame_logpolar)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/cur_frame_logpolar_%d.jpg" % exp_round, cur_frame_logpolar)
 
         H = np.fft.fft(last_frame_logpolar * np.hanning(last_frame_logpolar.shape[1])[None, :, None], axis=1)
         # H = np.fft.fft(last_frame_logpolar, axis=1)
@@ -378,11 +304,6 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
             response = np.real(np.fft.ifft(np.sum(np.fft.fft(
                 cur_frame_logpolar * np.hanning(last_frame_logpolar.shape[1])[None, :, None], axis=1)
                                                   * np.conj(H), axis=2), axis=1))
-        # import matplotlib.pyplot as plt
-        # import seaborn as sns
-        # plt.figure()
-        # sns.heatmap(response)
-        # plt.savefig("/home/shawn/scripts_output_tmp/heatmap_corr_%d.jpg" % exp_round)
 
         s_index = np.argmax(response, axis=1)
 
@@ -391,10 +312,6 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
         if True:
             scale = []
             for idx, s_ in enumerate(s_index):
-                # response_p = response[idx, [(s_-1)%response.shape[1], s_%response.shape[1], (s_+1)%response.shape[1]]]
-                # s_ = s_ + subpixel_peak(response_p)
-                # if s_ + 1 > response.shape[1] / 2:
-                #     s_ = s_ - response.shape[1]
 
                 result = response[idx, [(s_ - 1) % response.shape[1], s_ % response.shape[1], (s_ + 1) % response.shape[1]]]
                 # result = result[None, :]
@@ -409,21 +326,11 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
                 aaa = vvv[0]
                 bbb = vvv[1]
                 sf = -bbb/2/aaa
-                # sf = min(1.01, max(0.99, sf))
-                # sf = math.exp(s_/m)
                 scale.append(sf)
                 following_matrix[idx] = following_matrix[idx]*sf
                 # image scaling
                 for _idx in range(last_frame_polar_copy.shape[2]):
                     last_frame_polar_copy[idx, :, _idx] = scale_array(last_frame_polar_copy[idx, :, _idx], sf, FILL_VALUE=0, INTERP="LINEAR")
-
-            # ratio_sf = following_matrix_linearPolar.shape[0]/len(scale)
-            # scale_expeanded = scale_array(scale, ratio_sf, FILL_VALUE=1, INTERP="LINEAR", extend_flag=True)
-            # for idx in range(following_matrix_linearPolar.shape[0]):
-            #     sf_ = scale_expeanded[idx]
-            #     for _idx in range(following_matrix_linearPolar.shape[2]):
-            #         following_matrix_linearPolar[idx, :, _idx] = scale_array(following_matrix_linearPolar[idx, :, _idx], sf_,
-            #                                                           FILL_VALUE=0, INTERP="NEAREST")
 
         scale = np.array(scale)
         scale_deviation = np.sqrt(np.mean(np.square(scale - 1)))
@@ -433,23 +340,11 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
             print("%d round scale deviation is : %f" % (exp_round, scale_deviation))
             print()
 
-
         last_frame_new = cv2.linearPolar(np.abs(last_frame_polar_copy), center2, maxR2, cv2.WARP_INVERSE_MAP)
 
-        # xc, yc = center_following[:2]
-        # h_follow, w_follow, _ = following_matrix.shape
-        # r1 = math.hypot(xc, yc)
-        # r2 = math.hypot(w_follow - xc - 1, yc)
-        # r3 = math.hypot(xc, h_follow - yc - 1)
-        # r4 = math.hypot(w_follow - xc - 1, h_follow - yc - 1)
-        # maxR1_follow = max(r1, r2, r3, r4)
-        # following_matrix = cv2.linearPolar(following_matrix_linearPolar, center_following, maxR1_follow, cv2.WARP_INVERSE_MAP)
-        # following_matrix = following_matrix[:,:,None]
         if img_flag:
             last_frame_new = np.round(np.clip(last_frame_new, 0, 255))
 
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/following_matrix_%d.jpg"%exp_round, following_matrix)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/last_frame_new_%d.jpg" % exp_round, last_frame_new)
         last_frame = last_frame_new
         center1 = center2
         exp_round += 1
@@ -457,46 +352,12 @@ def MR_estimate(last_frame, cur_frame, use_channel_weight = False, channel_weigh
         stop_iter_condition = exp_round <= max_exp_round and \
                               (dx > dx_min or dy > dy_min or dphi > dphi_min or scale_deviation > scale_deviation_min)
 
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/following_matrix_end.jpg", following_matrix)
-    # # for _ in range(erode_times):
-    # #     k_erode = np.ones((2, 2), np.float32)
-    # #     following_matrix = cv2.erode(following_matrix,k_erode)
-    # following_matrix[following_matrix>122]=255
-    # following_matrix[following_matrix <= 122] = 0
-    # following_matrix = np.uint8(following_matrix)
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/following_matrix_2zhi.jpg", following_matrix)
-    # contours, _ = cv2.findContours(following_matrix, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    #
-    # cont_dots = np.array([x.shape[0] for x in contours])
-    # contour_max = contours[np.argmax(cont_dots)]
-    # x_cont = [x[0, 0] for x in contour_max]
-    # y_cont = [x[0, 1] for x in contour_max]
-    #
-    # # y_cont = [x for x in np.where(following_matrix==255)[0]]
-    # # x_cont = [x for x in np.where(following_matrix==255)[1]]
-    #
-    # xmin, ymin, xmax, ymax = min(x_cont), min(y_cont), max(x_cont), max(y_cont)
-    # w_res, h_res = xmax-xmin, ymax-ymin
-    # following_matrix[ymin, xmin:xmax] = 255
-    # following_matrix[ymax, xmin:xmax] = 255
-    # following_matrix[ymin:ymax, xmin] = 255
-    # following_matrix[ymin:ymax, xmax] = 255
-    # cv2.imwrite("/home/shawn/scripts_output_tmp/following_matrix_rect.jpg", following_matrix)
-    # dx, dy = (center_following[0] - center_following_const[0])/sf_following, (center_following[1] - center_following_const[1])/sf_following
-    # # xc, yc = xmin+(xmax - xmin) / 2, ymin+(ymax - ymin) / 2
-    # # dx, dy = (xc - center_following_const[0]) / sf_following, (
-    # #             yc - center_following_const[1]) / sf_following
-
-
-    # return dx, dy, w_res/sf_following, h_res/sf_following
-
     phi = np.array([i*360/following_matrix.shape[0] for i in range(following_matrix.shape[0])])
     x_cont = following_matrix * np.cos(phi*np.pi/180)
     y_cont = following_matrix * np.sin(phi*np.pi/180)
     w_res = max(x_cont) - min(x_cont)
     h_res = max(y_cont) - min(y_cont)
     return dx_res, dy_res, w_res, h_res
-    # return dx_res, dy_res, h_res, w_res
 
 
 def MR_estimate_one_time(last_frame, last_frame_linear_polar, last_frame_log_polar,
@@ -926,24 +787,11 @@ def test_polar_corr():
 
 
 if __name__ == "__main__":
-    # test_polar_corr()
-    # frame = generate_following_matrix((500, 500))
-    # cv2.imshow("huiguiren", frame)
-    # cv2.waitKey(0)
+    frame = generate_following_matrix((500, 500))
+    cv2.imshow("huiguiren", frame)
+    cv2.waitKey(0)
 
-    # frame, later_frame = generate_image()
-    # MR_estimate(frame, later_frame, log_flag=True, img_flag=True)
-
-    a=list(range(10))
-    for _ in range(10):
-        a.append(0)
-    print(a)
-    b=scale_array(a, 0.9, INTERP="LINEAR")
-    print(b)
-    c=scale_array(a, 1.5, INTERP="LINEAR", extend_flag=True)
-    print(c)
-    c = scale_array(a, 1.5, INTERP="LINEAR", extend_flag=False)
-    print(c)
-    pass
+    frame, later_frame = generate_image()
+    MR_estimate(frame, later_frame, log_flag=True, img_flag=True)
 
 

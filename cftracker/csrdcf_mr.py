@@ -5,6 +5,18 @@ Python re-implementation of "Discriminative Correlation Filter with Channel and 
   author={Lukezic, Alan and Vojir, Tomas and Zajc, Luka Cehovin and Matas, Jiri and Kristan, Matej},
   booktitle={IEEE Conference on Computer Vision & Pattern Recognition},
   year={2017},
+
+Date: October 10, 2022
+Author: Shihao Zou
+Changement:
+    1. An iterative estimation method of translation, rotation and scaling is added into DCF-CSR tracker.
+    
+    2. An scaling correction mechanism origins from geomatric optics theory is introduced to increase 
+    scaling estimation accuracy.
+
+Reference:
+    The principle of such a new tracker could be found in the technique report: 
+    https://drive.google.com/drive/folders/1i-294Y137ySk-4afjPpypxodpGenpJPZ?usp=share_link
 }
 """
 import numpy as np
@@ -75,20 +87,15 @@ class CSRDCF_MR(BaseCF):
 
         self.rescale_template_size=(int(self.rescale_ratio*self.template_size[0]),
                                     int(self.rescale_ratio*self.template_size[1]))
+        
+        # object function in the cartesian coordinate
         self.yf=fft2(gaussian2d_rolled_labels((int(self.rescale_template_size[0]/self.cell_size),
                                                int(self.rescale_template_size[1]/self.cell_size)),
                                               self.y_sigma))
-        # yf_logPolar = np.fft.fft(gaussian1d_rolled_labels(int(self.rescale_template_size[1]/self.cell_size),
-        #                                       self.y_sigma))
-        # yf_logPolar = fft2(gaussian1d_rolled_labels(int(self.rescale_template_size[1] / self.cell_size),
-        #                                                   self.y_sigma))
-        # rows_num = int(self.rescale_template_size[0] / self.cell_size)
-        # cols_num = int(self.rescale_template_size[1]/self.cell_size)
-        # self.yf_logPolar = np.zeros((rows_num, cols_num)).astype(np.complex)
-        # for _i in range(rows_num):
-            # self.yf_logPolar[_i, :] = yf_logPolar*max(abs((rows_num-_i)-rows_num//2), 0.5)
-        # self.yf_logPolar = yf_logPolar
 
+        # object function in the log-polar coordinate
+        # Estimation of scaling occurs at each direction, thus for each direction theta, 
+        # the similarity function peak amplitude should be identical
         yf_logPolar = gaussian1d_rolled_labels(int(self.rescale_template_size[1] / self.cell_size), self.y_sigma)
         rows_num = int(self.rescale_template_size[0] / self.cell_size)
         cols_num = int(self.rescale_template_size[1]/self.cell_size)
@@ -96,15 +103,6 @@ class CSRDCF_MR(BaseCF):
         for _i in range(rows_num):
             self.yf_logPolar[_i, :] = yf_logPolar
         self.yf_logPolar = fft2(self.yf_logPolar)
-
-        # import seaborn as sns
-        # import matplotlib.pyplot as plt
-        # plt.figure()
-        # sns.heatmap(np.abs(self.yf))
-        # plt.savefig("/home/shawn/scripts_output_tmp/yf.png")
-        # plt.figure()
-        # sns.heatmap(np.abs(self.yf_logPolar))
-        # plt.savefig("/home/shawn/scripts_output_tmp/yf_logPolar.png")
 
         self._window=cos_window((self.yf.shape[1],self.yf.shape[0]))
         self.crop_size=self.rescale_template_size
@@ -134,16 +132,6 @@ class CSRDCF_MR(BaseCF):
         self.target_dummy_mask_linearPolar[:, 0:R_thres] = 1
         self.target_dummy_mask_logPolar[:, 0:R_thres_log] = 1
 
-        # plt.figure()
-        # sns.heatmap(np.abs(self.target_dummy_mask))
-        # plt.savefig("/home/shawn/scripts_output_tmp/target_dummy_mask.png")
-        # plt.figure()
-        # sns.heatmap(np.abs(self.target_dummy_mask_linearPolar))
-        # plt.savefig("/home/shawn/scripts_output_tmp/target_dummy_mask_linearPolar.png")
-        # plt.figure()
-        # sns.heatmap(np.abs(self.target_dummy_mask_logPolar))
-        # plt.savefig("/home/shawn/scripts_output_tmp/target_dummy_mask_logPolar.png")
-
         if self.use_segmentation:
             if self.segcolor_space=='bgr':
                 seg_img=first_frame
@@ -157,18 +145,9 @@ class CSRDCF_MR(BaseCF):
             hist_bg=Histogram(3,self.nbins)
             self.extract_histograms(seg_img,bbox,hist_fg,hist_bg)
 
+            # calculate mask matrix at each coordinates, since object distrots.
             mask,mask_linearPolar,mask_logPolar,m_factor=self.segment_region(seg_img,self._center,self.template_size,self.base_target_sz,self.current_scale_factor,
                                      hist_fg,hist_bg)
-
-            # plt.figure()
-            # sns.heatmap(np.abs(mask))
-            # plt.savefig("/home/shawn/scripts_output_tmp/mask.png")
-            # plt.figure()
-            # sns.heatmap(np.abs(mask_linearPolar))
-            # plt.savefig("/home/shawn/scripts_output_tmp/mask_linearPolar.png")
-            # plt.figure()
-            # sns.heatmap(np.abs(mask_logPolar))
-            # plt.savefig("/home/shawn/scripts_output_tmp/mask_logPolar.png")
 
             self.hist_bg_p_bins=hist_bg.p_bins
             self.hist_fg_p_bins=hist_fg.p_bins
@@ -211,83 +190,18 @@ class CSRDCF_MR(BaseCF):
             mask_linearPolar = self.target_dummy_mask_linearPolar
             mask_logPolar = self.target_dummy_mask_logPolar
 
-        # plt.figure()
-        # sns.heatmap(np.abs(mask))
-        # plt.savefig("/home/shawn/scripts_output_tmp/mask_after_dilate.png")
-        # plt.figure()
-        # sns.heatmap(np.abs(mask_linearPolar))
-        # plt.savefig("/home/shawn/scripts_output_tmp/mask_linearPolar_after_dilate.png")
-        # plt.figure()
-        # sns.heatmap(np.abs(mask_logPolar))
-        # plt.savefig("/home/shawn/scripts_output_tmp/mask_logPolar_after_dilate.png")
-
         # extract features in Cartesian coordinates
         center_pos = (int(self._center[0]), int(self._center[1]))
-        # patch_frame = cv2.getRectSubPix(first_frame, patchSize=(int(self.current_scale_factor * self.template_size[0]),
-        #                                                   int(self.current_scale_factor * self.template_size[1])),
-        #                           center=center_pos)
-        # patch_frame_resized = cv2.resize(patch_frame, self.rescale_template_size).astype(np.uint8)
 
+        # Extracting Gray feature and HOG at each coordinate.
         f, f_linearPolar, f_logPolar = self.extract_feature(first_frame)
 
-        # create filters using segmentation mask
+        # create filters using segmentation masks at each coordinate
         self.H=self.create_csr_filter(f,self.yf,mask)
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/zzz_H02.txt', np.real(self.H))
+
         self.H_linearPolar = self.create_csr_filter(f_linearPolar, self.yf, mask_linearPolar)
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/zzz_Hlinear02.txt', np.real(self.H_linearPolar))
-        # self.H_logPolar = self.create_csr_filter(f_logPolar, self.yf_logPolar, mask_logPolar)
+        
         self.H_logPolar = self.create_csr_filter(f_logPolar, self.yf_logPolar, mask_logPolar)
-        # self.H_logPolar = np.zeros_like(f_logPolar).astype(np.complex)
-        # for _i in range(f_logPolar.shape[0]):
-        #     yf_bar = self.yf_logPolar[_i, :]
-        #     m_logPolar_bar = mask_logPolar[_i, :]
-        #     f_logPolar_bar = f_logPolar[_i, :]
-        #     f_tmp = self.create_csr_filter(f_logPolar_bar[None, :, :], yf_bar[None, :], m_logPolar_bar[None, :])
-        #     self.H_logPolar[_i, :, :] = f_tmp[:, :]
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/zzz_Hlog02.txt', np.real(self.H_logPolar))
-
-        # H_inversed_linear = cv2.linearPolar(np.real(self.H_linearPolar),
-        #                                     (self.H.shape[1]//2, self.H.shape[0]//2),
-        #                                     np.sqrt((self.H.shape[1]//2)**2+(self.H.shape[0]//2)**2), cv2.WARP_INVERSE_MAP)
-        # print((self.H.shape[1]//2, self.H.shape[0]//2))
-        # print(np.sqrt((self.H.shape[1]//2)**2+(self.H.shape[0]//2)**2))
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/H_inversed_linear02.txt', H_inversed_linear)
-
-
-        # H_inversed_linear = np.sum(H_inversed_linear, axis = 2)
-        # self.H_linearPolar = np.sum(self.H_linearPolar, axis=2)
-
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/H_inversed_linear_inversed.jpg", 255*(H_inversed_linear-np.min(H_inversed_linear))/(np.max(H_inversed_linear)-np.min(H_inversed_linear)))
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/H_inversed_linear.jpg",
-        #             255 * (np.real(self.H_linearPolar) - np.min(np.real(self.H_linearPolar))) / (
-        #                         np.max(np.real(self.H_linearPolar)) - np.min(np.real(self.H_linearPolar))))
-        # m_factor = max(self.H.shape[:2])/np.log(np.sqrt((self.H.shape[1]//2)**2+(self.H.shape[0]//2)**2))
-        # H_inversed_log = cv2.logPolar(np.real(self.H_logPolar), (self.H.shape[1]//2, self.H.shape[0]//2), m_factor, cv2.WARP_INVERSE_MAP)
-        # print((self.H.shape[1]//2, self.H.shape[0]//2))
-        # print(m_factor)
-
-
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/H_inversed_log02.txt', H_inversed_log)
-        # H_inversed_log = np.sum(H_inversed_log, axis=2)
-        # self.H_logPolar = np.sum(self.H_logPolar, axis=2)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/H_logPolar_inversed.jpg",
-        #             255 * (H_inversed_log - np.min(H_inversed_log)) / (
-        #                         np.max(H_inversed_log) - np.min(H_inversed_log)))
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/H_logPolar.jpg",
-        #             255 * (np.real(self.H_logPolar) - np.min(np.real(self.H_logPolar))) / (
-        #                     np.max(np.real(self.H_logPolar)) - np.min(np.real(self.H_logPolar))))
-        # self.H = (self.H+H_inversed_linear.astype(np.complex)+H_inversed_log.astype(np.complex))/3
-        # self.H = np.sum(np.abs(self.H), axis=2)/self.H.shape[2]
-        # self.H = self.H/np.max(self.H)*255
-        # self.H_linearPolar = np.sum(np.abs(self.H_linearPolar), axis=2) / self.H_linearPolar.shape[2]
-        # self.H_linearPolar = self.H_linearPolar / np.max(self.H_linearPolar) * 255
-        # self.H_logPolar = np.sum(np.abs(self.H_logPolar), axis=2) / self.H_logPolar.shape[2]
-        # self.H_logPolar = self.H_logPolar / np.max(self.H_logPolar) * 255
-        #
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/self.H.jpg", self.H)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/self.H_linearPolar.jpg", self.H_linearPolar)
-        # cv2.imwrite("/home/shawn/scripts_output_tmp/self.H_logPolar.jpg", self.H_logPolar)
-
 
         response=np.real(ifft2(fft2(f)*np.conj(self.H)))
         response_linearPolar = np.real(ifft2(fft2(f_linearPolar) * np.conj(self.H_linearPolar)))
@@ -308,18 +222,14 @@ class CSRDCF_MR(BaseCF):
         patch_frame = cv2.getRectSubPix(img, patchSize=(int(self.current_scale_factor[0] * self.template_size[0]),
                                                         int(self.current_scale_factor[1] * self.template_size[1])),
                                         center=center_pos)
-        # cv2.imshow("dsa", patch_frame)
-        # cv2.waitKey(0)
+        
         patch_frame_resized = cv2.resize(patch_frame, self.rescale_template_size).astype(np.uint8)
         return patch_frame, patch_frame_resized
 
     def extract_feature(self, img):
         patch_frame, patch_frame_resized = self.getsubpix(img)
         f = self.get_csr_features(patch_frame_resized, self.cell_size)
-        # f = self.get_csr_features(img, self._center, self.current_scale_factor,
-        #                  self.template_size, self.rescale_template_size, self.cell_size)
-
-        # extract features in linear-Polar coordinates
+        
         h, w, _ = patch_frame.shape
         center_pos = (w//2, h//2)
         xmin, xmax, ymin, ymax = 0, patch_frame.shape[1] - 1, 0, patch_frame.shape[0] - 1
@@ -332,20 +242,16 @@ class CSRDCF_MR(BaseCF):
         first_frame_linearPolar = cv2.linearPolar(patch_frame, center_pos, maxR,
                                                   cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
         first_frame_linearPolar = cv2.resize(first_frame_linearPolar, self.rescale_template_size).astype(np.uint8)
-        # cv2.imshow("", first_frame_linearPolar)
-        # cv2.waitKey(0)
+        
         f_linearPolar = self.get_csr_features(first_frame_linearPolar, self.cell_size)
-        # f_linearPolar = self.get_csr_features(first_frame_linearPolar, self._center, self.current_scale_factor,
-        #                           self.template_size, self.rescale_template_size, self.cell_size)
-
+        
         # extract features in LogPolar-coordinates
         m_factor = max(patch_frame.shape[:2]) / np.log(maxR)
 
         first_frame_logPolar = cv2.logPolar(patch_frame, center_pos, m_factor,
                                             cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
         first_frame_logPolar = cv2.resize(first_frame_logPolar, self.rescale_template_size).astype(np.uint8)
-        # cv2.imshow("", first_frame_logPolar)
-        # cv2.waitKey(0)
+        
         f_logPolar = self.get_csr_features(first_frame_logPolar, self.cell_size)
 
         # add different window function since coordinate focus on different axes.
@@ -364,31 +270,24 @@ class CSRDCF_MR(BaseCF):
     def update(self,current_frame,vis=False):
         f, f_linearPolar, f_logPolar = self.extract_feature(current_frame)
 
-        # H_ifft =  np.real(ifft2(self.H))
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/zzz_H_ifft02.txt', H_ifft)
-        # write_ndarray(r'/home/shawn/scripts_output_tmp/zzz_f02.txt', f)
-
-        # dx, dy, w, h = MR_estimate(np.real(ifft2(self.H)), f, use_channel_weight=False,
-        #                            log_flag=True, img_flag=False)
-
         dx, dy, w, h = MR_estimate_one_time(self.H, self.H_linearPolar, self.H_logPolar, f, f_linearPolar, f_logPolar,
                                    use_channel_weight=True, channel_weight=self.chann_w,
                                    channel_weight_linearPolar=self.chann_w_linearPolar, channel_weight_logPolar=self.chann_w_logPolar)
 
-        print(dx, dy, w, h)
+        # print(dx, dy, w, h)
 
         dx=int(self.current_scale_factor[0]*self.cell_size*(1/self.rescale_ratio)*dx)
         dy=int(self.current_scale_factor[1]*self.cell_size*(1/self.rescale_ratio)*dy)
         self._center=(self._center[0]+dx,self._center[1]+dy)
         s1, s2 = w/f.shape[1], h/f.shape[0]
-        # s1, s2 = max(min(w/f.shape[1], 1.000000001), 0.99995), max(min(h/f.shape[0], 1.005), 0.995)
-        self.current_scale_factor = (self.current_scale_factor[0]*s1, self.current_scale_factor[1]*s2)
 
+        self.current_scale_factor = (self.current_scale_factor[0]*s1, self.current_scale_factor[1]*s2)
 
         self.target_sz = (self.current_scale_factor[0] * self.base_target_sz[0],
                           self.current_scale_factor[1] * self.base_target_sz[1])
         region=[np.round(self._center[0] - self.target_sz[0] / 2),np.round( self._center[1] - self.target_sz[1] / 2),
                         self.target_sz[0], self.target_sz[1]]
+        
         if self.use_segmentation:
             if self.segcolor_space=='bgr':
                 seg_img=current_frame
@@ -459,15 +358,11 @@ class CSRDCF_MR(BaseCF):
         H_linear_new = self.create_csr_filter(f_linearPolar, self.yf, mask_linearPolar)
         self.H_linearPolar = (1 - self.interp_factor) * self.H_linearPolar + self.interp_factor * H_linear_new
 
-        # H_log_new = self.create_csr_filter(f_logPolar, self.yf_logPolar, mask_logPolar)
-
-        # H_log_new = np.zeros_like(f_logPolar).astype(np.complex)
         H_log_new = self.create_csr_filter(f_logPolar, self.yf_logPolar, mask_logPolar)
 
         # self.H_logPolar = (1 - self.interp_factor) * self.H_logPolar + self.interp_factor * H_log_new
         sfsfsfsf = self.interp_factor
         self.H_logPolar = (1 - sfsfsfsf) * self.H_logPolar + sfsfsfsf * H_log_new
-
 
         response = np.real(ifft2(fft2(f) * np.conj(self.H)))
         response_linearPolar = np.real(ifft2(fft2(f_linearPolar) * np.conj(self.H_linearPolar)))
@@ -477,7 +372,6 @@ class CSRDCF_MR(BaseCF):
             response_linearPolar.reshape(response_linearPolar.shape[0] * response_linearPolar.shape[1], -1), axis=0)
         chann_w_logPolar = np.max(
             response_logPolar.reshape(response_logPolar.shape[0] * response_logPolar.shape[1], -1), axis=0)
-
 
         self.chann_w = chann_w / np.sum(chann_w)
         self.chann_w_linearPolar = chann_w_linearPolar / np.sum(chann_w_linearPolar)
@@ -489,11 +383,8 @@ class CSRDCF_MR(BaseCF):
 
     def get_csr_features(self, img, #center,scale,template_sz,resize_sz,
                          cell_size):
-        # center=(int(center[0]),int(center[1]))
-        # patch=cv2.getRectSubPix(img,patchSize=(int(scale*template_sz[0]),int(scale*template_sz[1])),
-        #                         center=center)
-        # patch=cv2.resize(patch,resize_sz).astype(np.uint8)
         hog_feature=extract_hog_feature(img,cell_size)[:,:,:18]
+
         # gray feature is included in the cn features
         cn_feature=extract_cn_feature(img,cell_size)
         features=np.concatenate((hog_feature,cn_feature),axis=2)
@@ -692,27 +583,10 @@ class CSRDCF_MR(BaseCF):
         mask_logPolar = cv2.logPolar(mask, (xc, yc), m_factor, cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
 
         mask=self.binarize_softmask(mask)
-        # self.mask = mask
-
-        # patch_tmp = patch.copy()
-        # for idx in range(patch_tmp.shape[2]):
-        #     patch_tmp[:,:,idx] = patch_tmp[:,:,idx]*mask
-        # cv2.imshow("", patch_tmp)
-        # cv2.waitKey(1)
 
         mask_linearPolar=self.binarize_softmask(mask_linearPolar)
 
-
         mask_logPolar=self.binarize_softmask(mask_logPolar)
-
-
-        # img_ = patch
-        # img_[:,:,0] = img_[:,:,0]*mask
-        # img_[:, :, 1] = img_[:, :, 1] * mask
-        # img_[:, :, 2] = img_[:, :, 2] * mask
-        #
-        # cv2.imshow("", img_)
-        # cv2.waitKey(0)
         return mask,mask_linearPolar,mask_logPolar,m_factor
 
 
@@ -868,23 +742,6 @@ class Segment:
         max_iter=50
         Qsum_o=None
         Qsum_b=None
-
-        # import seaborn as sns
-        # import matplotlib.pyplot as plt
-        # fig = plt.figure(figsize=(40,20))
-        # fig.add_subplot(2,1,1)
-        # sns.heatmap(prob_b, linewidth=0.3)
-        # fig.add_subplot(2, 1, 2)
-        # sns.heatmap(prob_o, linewidth=0.3)
-        #
-        # fig = plt.figure(figsize=(40, 20))
-        # fig.add_subplot(2, 1, 1)
-        # sns.heatmap(prior_b, linewidth=0.3)
-        # fig.add_subplot(2, 1, 2)
-        # sns.heatmap(prior_o, linewidth=0.3)
-        #
-        # plt.show()
-        # plt.close()
 
         for i in range(max_iter):
             P_Io=prior_o*prob_o+1.192*1e-7
