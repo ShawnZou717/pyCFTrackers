@@ -67,7 +67,7 @@ cv2.destroyAllWindows()
 
 ## GOITLM
 
-The geomatric optics theory has shown that radious along different directions varies at different rate in the imaging plane if the object is moving (See technique report in [GoogleDrive](https://github.com/ShawnZou717/pyCFTrackers/blob/master/cftracker/MRScale_estimator.py)). 
+The geomatric optics theory has shown that radious along different directions varies at different rate in the imaging plane if the object is moving (See technique report in [GoogleDrive](https://drive.google.com/drive/folders/1i-294Y137ySk-4afjPpypxodpGenpJPZ?usp=share_link)). 
 
 The main feature of GOITLM relies in its iterative estimation method and OSE. OSE performs a iterative estimation of translation, rotation and scaling factor, and applies a cubic polynomial equation to correct the estimating error of scaling factors. Working flow of GOITLM is shown below.
 
